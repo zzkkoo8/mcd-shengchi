@@ -5,7 +5,14 @@ from __future__ import annotations
 
 import unittest
 
-from now_decision import explain_price, match_candidates, normalize_menu, parse_nutrition
+from now_decision import (
+    build_decision_card,
+    explain_price,
+    match_candidates,
+    normalize_menu,
+    parse_nutrition,
+    render_decision_html,
+)
 
 
 NUTRITION = """[3]{productName,nutritionDescription,energyKj,energyKcal,protein,fat,carbohydrate,sodium,calcium}:
@@ -56,6 +63,38 @@ class NowDecisionTest(unittest.TestCase):
     def test_price_uses_fen(self) -> None:
         explained = explain_price({"data": {"price": 2690, "discount": 0, "productList": []}})
         self.assertEqual(26.9, explained["payableYuan"])
+
+    def test_decision_card_rejects_unverified_prices(self) -> None:
+        card = build_decision_card({
+            "sample": True,
+            "channel": "pickup",
+            "store": {"name": "麦当劳（示例广场店）", "storeCode": "STORE-EXAMPLE"},
+            "candidate": {"name": "示例套餐", "code": "MEAL-EXAMPLE", "menuPriceYuan": 29.9},
+            "price": {"data": {"price": 2690, "productList": []}},
+            "storeCoupon": {"usable": False, "title": "账户早餐券"},
+            "unverifiedClaims": [
+                {"source": "campaign-copy", "text": "活动页 19.9 元"},
+                {"source": "account-coupon", "text": "账户券未核验"},
+            ],
+        })
+        self.assertEqual(26.9, card["payableYuan"])
+        self.assertEqual("未证实本店可用", card["storeCoupon"]["status"])
+        self.assertEqual("活动文案价，不能下单", card["unverifiedClaims"][0]["label"])
+        html = render_decision_html(card)
+        self.assertNotIn("<script", html)
+        self.assertNotIn("http://", html)
+        self.assertNotIn("https://", html)
+        self.assertIn("¥26.90", html)
+        self.assertIn("活动文案价", html)
+
+    def test_missing_official_price_is_not_invented(self) -> None:
+        card = build_decision_card({
+            "store": {"name": "麦当劳（示例广场店）", "storeCode": "STORE-EXAMPLE"},
+            "candidate": {"name": "示例套餐", "code": "MEAL-EXAMPLE"},
+            "unverifiedClaims": [{"source": "campaign-copy", "text": "文案价 9.9 元"}],
+        })
+        self.assertIsNone(card["payableYuan"])
+        self.assertEqual("not-calculated", card["priceStatus"])
 
 
 if __name__ == "__main__":

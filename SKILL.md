@@ -19,7 +19,7 @@ description: 在用户想省着吃麦当劳、按预算选餐、核对门店可�
 4. 匹配候选。需要热量时先调用 `list-nutrition-foods`，把原始 `data` 字符串保存为临时文件。运行 `scripts/now_decision.py match --menu <menu.json> --nutrition <nutrition.txt> --intent "<用户原话>" --budget <元>`。预算按菜单现价预筛，最终价格仍以核价为准。
 5. 校验门店券。用户要省钱时调用 `query-store-coupons`。`query-my-coupons` 和 `available-coupons` 只说明账户资产或可领状态，不证明当前门店可用。账户券的商品编码与当前菜单编码不一致时，不得把账户券直接套到菜单商品上。
 6. 官方核价。对用户选中的一个候选调用 `calculate-price`。套餐使用 `query-meal-detail` 返回的默认组合，参数名是 `code`，不是 `productCode`。运行 `scripts/now_decision.py explain-price --input <price.json>`。向用户展示元，不展示分。
-7. 输出一张决策卡：门店、候选、菜单价、核价、热量匹配状态、可用券状态、未验证项。用户明确要求下单前停止。下单、领券、取消、兑换、抽奖和新增地址都必须单独确认。
+7. 生成决策卡。把已核实的门店、候选、官方核价和门店券写入临时 JSON，运行 `scripts/now_decision.py render-card --input <card.json> --html <card.html>`。活动文案价和账户券只能放入 `unverifiedClaims`。没有 `calculate-price` 结果时不得填写 `price`。样例只能来自 `examples/decision-card.sample.json`，并保留 `sample: true`。用户明确要求下单前停止。下单、领券、取消、兑换、抽奖和新增地址都必须单独确认。
 
 ## 硬边界
 

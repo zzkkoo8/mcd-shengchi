@@ -215,6 +215,152 @@ def channel_params(channel: str) -> dict[str, Any]:
     return dict(CHANNEL_RULES[channel])
 
 
+PRICE_SOURCE_LABELS = {
+    "official-calculate-price": "官方核价",
+    "menu-price": "菜单现价，尚未核价",
+    "campaign-copy": "活动文案价，不能下单",
+    "account-coupon": "账户券，不证明本店可用",
+}
+
+
+def build_decision_card(payload: dict[str, Any]) -> dict[str, Any]:
+    """Build a shareable decision card from already retrieved facts.
+
+    The function does not call MCP and does not invent a payable price. A
+    campaign price or an account coupon can be displayed only as an unverified
+    claim. The payable amount exists only when calculate-price supplied it.
+    """
+    channel = channel_params(str(payload.get("channel", "pickup")))
+    store = payload.get("store") or {}
+    candidate = payload.get("candidate") or {}
+    price = payload.get("price")
+    coupon = payload.get("storeCoupon") or {}
+    claims = payload.get("unverifiedClaims") or []
+    if not store.get("name") or not store.get("storeCode"):
+        raise ValueError("decision card requires a store name and storeCode")
+    if not candidate.get("name") or not candidate.get("code"):
+        raise ValueError("decision card requires a candidate name and code")
+
+    explained = explain_price(price) if price else None
+    payable = None if explained is None else explained["payableYuan"]
+    nutrition = candidate.get("nutrition")
+    nutrition_status = candidate.get("nutritionStatus", "unmatched")
+    if nutrition_status != "exact-name":
+        nutrition = None
+    coupon_status = "本店可用" if coupon.get("usable") is True else "未证实本店可用"
+    verified = []
+    if explained is not None:
+        verified.append("官方核价")
+    if coupon.get("usable") is True:
+        verified.append("门店可用券")
+    if nutrition_status == "exact-name":
+        verified.append("营养名称精确命中")
+
+    return {
+        "title": "省吃决策卡",
+        "sample": bool(payload.get("sample")),
+        "disclaimer": "样例数据，不是当前门店报价" if payload.get("sample") else "仅供参考，不构成营养或医疗建议",
+        "channel": channel["label"],
+        "store": {
+            "name": store["name"],
+            "storeCode": str(store["storeCode"]),
+            "distance": store.get("distance"),
+            "openHours": store.get("openHours"),
+        },
+        "candidate": {
+            "code": str(candidate["code"]),
+            "name": candidate["name"],
+            "menuPriceYuan": candidate.get("menuPriceYuan"),
+            "requiresWithOrder": bool(candidate.get("requiresWithOrder")),
+        },
+        "payableYuan": payable,
+        "priceStatus": "official-calculate-price" if explained else "not-calculated",
+        "priceBreakdown": explained,
+        "nutrition": nutrition,
+        "nutritionStatus": nutrition_status,
+        "storeCoupon": {
+            "status": coupon_status,
+            "title": coupon.get("title"),
+            "usable": coupon.get("usable") is True,
+        },
+        "verified": verified,
+        "unverifiedClaims": [
+            {
+                "source": item.get("source"),
+                "label": PRICE_SOURCE_LABELS.get(str(item.get("source")), "未验证"),
+                "text": item.get("text"),
+            }
+            for item in claims
+        ],
+        "nextAction": "确认前不领券、不下单、不支付",
+    }
+
+
+def render_decision_html(card: dict[str, Any]) -> str:
+    """Render one self-contained card. No remote fonts, scripts, or images."""
+    payable = "尚未官方核价" if card["payableYuan"] is None else f"¥{card['payableYuan']:.2f}"
+    menu_price = card["candidate"].get("menuPriceYuan")
+    menu_text = "菜单价未提供" if menu_price is None else f"菜单现价 ¥{float(menu_price):.2f}"
+    nutrition = card.get("nutrition") or {}
+    kcal = "热量未精确命中" if not nutrition else f"{nutrition.get('energyKcal')} kcal"
+    claims = "".join(
+        f"<li><strong>{_escape(item['label'])}</strong>：{_escape(item.get('text') or '')}</li>"
+        for item in card["unverifiedClaims"]
+    ) or "<li>没有额外的未验证价格声明</li>"
+    sample = "<p class=\"sample\">脱敏样例 · 不能当作今日报价</p>" if card["sample"] else ""
+    with_order = "需随单购后才可能达到展示优惠" if card["candidate"]["requiresWithOrder"] else "不依赖随单购"
+    return f"""<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>省吃决策卡</title>
+<style>
+:root {{ color-scheme: light; }}
+body {{ margin: 0; background: #f6f1e8; color: #241c15; font: 16px/1.5 "PingFang SC", "Noto Sans SC", sans-serif; }}
+main {{ max-width: 440px; margin: 24px auto; padding: 24px; background: #fffaf3; border: 1px solid #e6d7c3; border-radius: 18px; }}
+h1 {{ margin: 0 0 4px; font-size: 28px; letter-spacing: .04em; }}
+.sample, .note {{ color: #8a5a12; }}
+.payable {{ margin: 18px 0; font-size: 42px; font-weight: 750; color: #da291c; }}
+dl {{ display: grid; grid-template-columns: 92px 1fr; gap: 8px 12px; margin: 16px 0; }}
+dt {{ color: #6d6258; }}
+dd {{ margin: 0; }}
+ul {{ padding-left: 18px; }}
+</style>
+</head>
+<body>
+<main>
+  {sample}
+  <h1>省吃</h1>
+  <p>账户券和活动文案价，都不是可下单价。</p>
+  <p class="payable">{_escape(payable)}</p>
+  <dl>
+    <dt>门店</dt><dd>{_escape(card["store"]["name"])}</dd>
+    <dt>渠道</dt><dd>{_escape(card["channel"])}</dd>
+    <dt>候选</dt><dd>{_escape(card["candidate"]["name"])}</dd>
+    <dt>菜单价</dt><dd>{_escape(menu_text)} · {_escape(with_order)}</dd>
+    <dt>热量</dt><dd>{_escape(kcal)}</dd>
+    <dt>门店券</dt><dd>{_escape(card["storeCoupon"]["status"])}</dd>
+  </dl>
+  <h2>不能直接相信</h2>
+  <ul>{claims}</ul>
+  <p class="note">{_escape(card["nextAction"])}。{_escape(card["disclaimer"])}</p>
+</main>
+</body>
+</html>
+"""
+
+
+def _escape(value: Any) -> str:
+    text = "" if value is None else str(value)
+    return (
+        text.replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace('"', "&quot;")
+    )
+
+
 def _intent_labels(intent: str) -> set[str]:
     labels = set()
     for label, words in INTENT_KEYWORDS.items():
@@ -283,6 +429,10 @@ def main() -> int:
     channel = subparsers.add_parser("channel")
     channel.add_argument("--name", required=True, choices=sorted(CHANNEL_RULES))
 
+    card = subparsers.add_parser("render-card")
+    card.add_argument("--input", required=True)
+    card.add_argument("--html")
+
     args = parser.parse_args()
     if args.command == "parse-nutrition":
         payload = open(args.input, encoding="utf-8").read()
@@ -299,6 +449,11 @@ def main() -> int:
         )
     elif args.command == "explain-price":
         result = explain_price(_load_json(args.input))
+    elif args.command == "render-card":
+        result = build_decision_card(_load_json(args.input))
+        if args.html:
+            with open(args.html, "w", encoding="utf-8") as handle:
+                handle.write(render_decision_html(result))
     else:
         result = channel_params(args.name)
     json.dump(result, sys.stdout, ensure_ascii=False, indent=2)

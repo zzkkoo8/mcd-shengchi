@@ -1,0 +1,50 @@
+{
+  "sample": true,
+  "channel": "pickup",
+  "store": {
+    "name": "麦当劳（示例广场店）",
+    "storeCode": "STORE-EXAMPLE",
+    "distance": "420 米",
+    "openHours": "07:00-23:00"
+  },
+  "candidate": {
+    "code": "MEAL-EXAMPLE",
+    "name": "示例辣味鸡腿堡套餐",
+    "menuPriceYuan": 29.9,
+    "requiresWithOrder": false,
+    "nutritionStatus": "unmatched"
+  },
+  "price": {
+    "data": {
+      "price": 2690,
+      "originalPrice": 2990,
+      "discount": 300,
+      "productPrice": 2690,
+      "deliveryPrice": 0,
+      "packingPrice": 0,
+      "tablewarePrice": 0,
+      "productList": [
+        {
+          "productCode": "MEAL-EXAMPLE",
+          "productName": "示例辣味鸡腿堡套餐",
+          "quantity": 1,
+          "subtotal": 2690
+        }
+      ]
+    }
+  },
+  "storeCoupon": {
+    "usable": true,
+    "title": "示例门店满减券"
+  },
+  "unverifiedClaims": [
+    {
+      "source": "campaign-copy",
+      "text": "活动页写着 19.9 元，但这是文案价"
+    },
+    {
+      "source": "account-coupon",
+      "text": "账户里有早餐券，不代表这家店现在可用"
+    }
+  ]
+}
